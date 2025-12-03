@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Sender</title></head>
+<body>
+<h2>Sender (Phone)</h2>
+<label>Room: <input id="room" value="myroom"></label>
+<label>Password: <input id="password" value="1234"></label>
+<br><br>
+<video id="preview" autoplay playsinline></video>
+<br>
+<button id="startStream">Start Live (WebRTC)</button>
+<button id="stopStream" disabled>Stop Live</button>
+<button id="startRec">Start Enregistrement</button>
+<button id="stopRec" disabled>Stop & Upload</button>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const preview=document.getElementById('preview');
+let localStream,mediaRecorder,recordedChunks=[],pc;
+async function init(){localStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});preview.srcObject=localStream;}init();
+const room=()=>document.getElementById('room').value;
+const pass=()=>document.getElementById('password').value;
+document.getElementById('startRec').onclick=()=>{recordedChunks=[];mediaRecorder=new MediaRecorder(localStream);mediaRecorder.ondataavailable=e=>{if(e.data.size)recordedChunks.push(e.data);};mediaRecorder.start();document.getElementById('startRec').disabled=true;document.getElementById('stopRec').disabled=false;};
+document.getElementById('stopRec').onclick=async()=>{mediaRecorder.stop();document.getElementById('startRec').disabled=false;document.getElementById('stopRec').disabled=true;const blob=new Blob(recordedChunks,{type:'video/webm'});const f=new FormData();f.append('video',blob,'recording.webm');const r=await fetch(`/upload?room=${room()}&password=${pass()}`,{method:'POST',body:f});alert(await r.text());};
+const socket=io();
+document.getElementById('startStream').onclick=async()=>{const ack=await new Promise(r=>socket.emit('join-room',{room:room(),password:pass(),role:'sender'},r));if(!ack.ok)return alert(ack.err);pc=new RTCPeerConnection();pc.onicecandidate=e=>{if(e.candidate)socket.emit('ice-candidate',e.candidate);};localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));const offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('offer',offer);document.getElementById('startStream').disabled=true;document.getElementById('stopStream').disabled=false;};
+socket.on('answer',async a=>{if(pc)await pc.setRemoteDescription(a);});
+socket.on('ice-candidate',async c=>{try{if(pc)await pc.addIceCandidate(c);}catch(e){}});
+document.getElementById('stopStream').onclick=()=>{if(pc){pc.getSenders().forEach(s=>s.track.stop());pc.close();pc=null;}document.getElementById('startStream').disabled=false;document.getElementById('stopStream').disabled=true;};
+</script>
+</body></html>
